@@ -88,7 +88,7 @@ typedef unsigned gcov_unsigned_t;
 typedef long long gcov_type;
 
 // This is dependent on the gcc/gcov-counter.def and correponds to the number of counters
-// listed in that file
+// listed in that file, see also gcc/gcov-io.h
 #define GCOV_COUNTERS                9
 #define GCOV_DATA_MAGIC              ((gcov_unsigned_t) 0x67636461)    // "gcda"
 #define GCOV_TAG_FUNCTION            ((gcov_unsigned_t) 0x01000000)
@@ -104,7 +104,7 @@ typedef long long gcov_type;
  *  \param[in]  info    The pointer to the gcov coverage data
  *  \return             The number of bytes the were/would have been stored in the buffer
  *
- *  \details Converts the internal gcov data tree into the gcda output format. If this
+ *  Converts the internal gcov data tree into the gcda output format. If this
  *  function is called with a nullptr for \a buffer, the number of bytes needed can be
  *  determined. Compare to libgcc/libgcov-driver.c function write_one_data()
  */
@@ -114,23 +114,32 @@ extern size_t gcov_convert_to_gcda(gcov_unsigned_t* buffer, struct gcov_info* in
  *
  *  \param[in]  info    The info object associated with the object file
  *
- *  \details Called for each object file to init the counters.
+ *  Called for each object file to init the counters.
  */
 extern void __gcov_init(struct gcov_info* info);
 
 /*! \brief Called for each object file to summarize coverage data
  *
- *  \details Called for each object file to summarize coverage data
+ *  Called for each object file to summarize coverage data
  */
 extern void __gcov_exit(void);
 
 /*! \brief Function must not be called but needs to be defined
  *
- *  \param[in]   counters
- *  \param[in]   n_counters
+ *  \param[in]   counters   Not specified in gcc documentation / source code
+ *  \param[in]   n_counters Not specified in gcc documentation / source code
  *
- *  \details Function must not be called but needs to be defined
+ *  Function must not be called but needs to be defined
  */
 extern void __gcov_merge_add(gcov_type* counters, gcov_unsigned_t n_counters);
+
+/*! \brief Function must not be called but needs to be defined when compiling with MC/DC
+ *
+ *  \param[in]  counters    Not specified in gcc documentation / source code
+ *  \param[in]  n_counters  Not specified in gcc documentation / source code
+ *
+ *  Function must not be called but needs to be defined when compiling with MC/DC coverage
+ */
+extern void __gcov_merge_ior(gcov_type* counters, gcov_unsigned_t n_counters);
 
 #endif

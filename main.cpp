@@ -1,10 +1,10 @@
-#include "test.hpp"
 extern "C" {
 #include <gcov/gcov.h>
 }
 
+#include <test/test.hpp>
+
 int main() {
-    // test::add_or_mult(3, 3, false);
-    test::add_or_mult(2, 2, true);
+    test::add_or_mult(3, 3, false);
     return 0;
 }

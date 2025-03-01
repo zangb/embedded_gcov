@@ -156,6 +156,14 @@ static gcov_unsigned_t gcov_info_file_idx = 0;
 //! compiled for coverage
 gcov_unsigned_t gcov_buffer[262144];
 
+/*! \brief Saves the gcov data to a file
+ *
+ *  \param[in]  filename    The name of the file the data will be stored in
+ *  \param[in]  data        The pointer to the data to store
+ *  \param[in]  size        The size of the data to store in bytes
+ *
+ *  Saves the gcda to a file. \\ TODO: Remove this function for embedded
+ */
 void save_file(const char* filename, unsigned char* data, uint32_t size) {
     if((data == NULL) || (size == 0))
         return;
@@ -179,12 +187,11 @@ void save_file(const char* filename, unsigned char* data, uint32_t size) {
  *  Stores a uint32 value in the provided buffer.
  */
 static size_t store_gcov_unsigned(gcov_unsigned_t* buffer, size_t offset, gcov_unsigned_t value) {
-    gcov_unsigned_t* data;
     if(buffer) {
-        data = buffer + offset;
+        gcov_unsigned_t* data = buffer + offset;
         *data = value;
     }
-    return sizeof(*data) / sizeof(*buffer);
+    return sizeof(value) / sizeof(*buffer);
 }
 
 /*! \brief Stores a GCOV Tag with its length in the gcov format to the buffer
@@ -198,9 +205,9 @@ static size_t store_gcov_unsigned(gcov_unsigned_t* buffer, size_t offset, gcov_u
  *  Stores a gcov tag and length in the provided buffer.
  */
 static size_t store_gcov_tag_length(gcov_unsigned_t* buffer,
-                                    size_t offset,
-                                    gcov_unsigned_t tag,
-                                    gcov_unsigned_t length) {
+                                    const size_t offset,
+                                    const gcov_unsigned_t tag,
+                                    const gcov_unsigned_t length) {
     if(buffer) {
         (void) store_gcov_unsigned(buffer, offset, tag);
         (void) store_gcov_unsigned(buffer, offset + sizeof(tag) / sizeof(*buffer), length);
@@ -211,8 +218,8 @@ static size_t store_gcov_tag_length(gcov_unsigned_t* buffer,
 /*! \brief Stores a gcov counter which is a uint64 value to the provided buffer
  *
  *  \param[in]  buffer  The buffer in which to store the value
- *  \param[in]   offset The offset in the buffer at which to place the value
- *  \param[in]   value  The value to store in the buffer
+ *  \param[in]  offset The offset in the buffer at which to place the value
+ *  \param[in]  value  The value to store in the buffer
  *  \return Returns the number of uint32 words stored
  *
  *  Stores a gcov counter which is a uint64 value to the provided buffer. If the buffer
@@ -225,41 +232,42 @@ static size_t store_gcov_counter(gcov_unsigned_t* buffer, size_t offset, gcov_ty
         (void) store_gcov_unsigned(
             buffer, offset + sizeof(*buffer) / sizeof(*buffer), value >> 32U);
     }
-    return sizeof(value) / sizeof(*buffer) * 2U;
+    return sizeof(value) / sizeof(*buffer);
 }
 
 size_t gcov_convert_to_gcda(gcov_unsigned_t* buffer, struct gcov_info* info) {
-    size_t buffer_offset = 0U;
-    buffer_offset += store_gcov_tag_length(buffer, buffer_offset, GCOV_DATA_MAGIC, info->version);
-    buffer_offset += store_gcov_unsigned(buffer, buffer_offset, info->stamp);
-    buffer_offset += store_gcov_unsigned(buffer, buffer_offset, info->checksum);
+    size_t buffer_pos = 0U;
+    buffer_pos += store_gcov_tag_length(buffer, buffer_pos, GCOV_DATA_MAGIC, info->version);
+    buffer_pos += store_gcov_unsigned(buffer, buffer_pos, info->stamp);
+    buffer_pos += store_gcov_unsigned(buffer, buffer_pos, info->checksum);
 
     for(size_t function_idx = 0U; function_idx < info->n_functions; ++function_idx) {
         const struct gcov_fn_info* function = info->functions[function_idx];
 
-        buffer_offset += store_gcov_tag_length(
-            buffer, buffer_offset, GCOV_TAG_FUNCTION, GCOV_TAG_FUNCTION_LENGTH);
-        buffer_offset += store_gcov_unsigned(buffer, buffer_offset, function->ident);
-        buffer_offset += store_gcov_unsigned(buffer, buffer_offset, function->lineno_checksum);
-        buffer_offset += store_gcov_unsigned(buffer, buffer_offset, function->cfg_checksum);
+        buffer_pos +=
+            store_gcov_tag_length(buffer, buffer_pos, GCOV_TAG_FUNCTION, GCOV_TAG_FUNCTION_LENGTH);
+        buffer_pos += store_gcov_unsigned(buffer, buffer_pos, function->ident);
+        buffer_pos += store_gcov_unsigned(buffer, buffer_pos, function->lineno_checksum);
+        buffer_pos += store_gcov_unsigned(buffer, buffer_pos, function->cfg_checksum);
 
         const struct gcov_ctr_info* counters = function->ctrs;
         for(size_t counter_idx = 0U; counter_idx < GCOV_COUNTERS; ++counter_idx) {
             if(!info->merge[counter_idx])
                 continue;    // unused counter
-            buffer_offset += store_gcov_tag_length(buffer,
-                                                   buffer_offset,
-                                                   GCOV_TAG_FOR_COUNTER(counter_idx),
-                                                   GCOV_TAG_COUNTER_LENGTH(counters->num));
+            // counter record
+            buffer_pos += store_gcov_tag_length(buffer,
+                                                buffer_pos,
+                                                GCOV_TAG_FOR_COUNTER(counter_idx),
+                                                GCOV_TAG_COUNTER_LENGTH(counters->num));
             for(size_t counter_value_idx = 0U; counter_value_idx < counters->num;
                 ++counter_value_idx) {
-                buffer_offset +=
-                    store_gcov_counter(buffer, buffer_offset, counters->values[counter_value_idx]);
+                buffer_pos +=
+                    store_gcov_counter(buffer, buffer_pos, counters->values[counter_value_idx]);
             }
             ++counters;
         }
     }
-    return buffer_offset * sizeof(*buffer);
+    return buffer_pos * sizeof(*buffer);
 }
 
 void __gcov_init(struct gcov_info* info) {
@@ -286,39 +294,37 @@ void __gcov_exit(void) {
 
     // Add checks that the output buffer pointer does not exceed the limits of the buffer
     while(list_ptr) {
-        gcov_unsigned_t* buffer = NULL;
-        uint32_t bytes_needed;
+        const uint32_t bytes_needed = gcov_convert_to_gcda(NULL, list_ptr->info);
 
-        bytes_needed = gcov_convert_to_gcda(NULL, list_ptr->info);
+        gcov_unsigned_t* buffer = NULL;
         if(bytes_needed > (sizeof(gcov_buffer) * sizeof(gcov_unsigned_t))) {
             buffer = (gcov_unsigned_t*) NULL;
         } else {
-            buffer = gcov_buffer;
+            // buffer = gcov_buffer; // TODO: use something like this for embedded
             buffer = malloc(bytes_needed);    // TODO: Replace with embedded allocation
         }
 
-        if(!buffer)
+        if(!buffer)    //! not enough memory reserved
             return;
         // convert the binary data to gcda and store it in a local buffer
-        gcov_convert_to_gcda(buffer, list_ptr->info);
+        (void) gcov_convert_to_gcda(buffer, list_ptr->info);
 
         // copy the filename to the output buffer
         for(const char* filename = list_ptr->info->filename; filename && (*filename); ++filename) {
-            gcov_output_buffer[gcov_output_index] = (*filename);
-            ++gcov_output_index;
+            gcov_output_buffer[gcov_output_index++] = (*filename);
         }
         // trailing null char for string completion
         gcov_output_buffer[gcov_output_index++] = '\0';
         // store data byte count with MSB first
-        gcov_output_buffer[gcov_output_index++] = (unsigned char) ((bytes_needed >> 24) & 0xFFFF);
-        gcov_output_buffer[gcov_output_index++] = (unsigned char) ((bytes_needed >> 16) & 0xFFFF);
-        gcov_output_buffer[gcov_output_index++] = (unsigned char) ((bytes_needed >> 8) & 0xFFFF);
+        gcov_output_buffer[gcov_output_index++] = (unsigned char) ((bytes_needed >> 24U) & 0xFFFF);
+        gcov_output_buffer[gcov_output_index++] = (unsigned char) ((bytes_needed >> 16U) & 0xFFFF);
+        gcov_output_buffer[gcov_output_index++] = (unsigned char) ((bytes_needed >> 8U) & 0xFFFF);
         gcov_output_buffer[gcov_output_index++] = (unsigned char) (bytes_needed & 0xFFFF);
 
         // copy converted gcda data to output location
         for(size_t i = 0U; i < bytes_needed; ++i) {
-            gcov_output_buffer[gcov_output_index] = (unsigned char) (((unsigned char*) buffer)[i]);
-            ++gcov_output_index;
+            gcov_output_buffer[gcov_output_index++] =
+                (unsigned char) (((unsigned char*) buffer)[i]);
         }
         free(buffer);    //!< TODO: Replace with embedded allocation maybe
         list_ptr = list_ptr->next;
@@ -340,6 +346,12 @@ void __gcov_exit(void) {
 }
 
 void __gcov_merge_add(gcov_type* counters, gcov_unsigned_t n_counters) {
+    (void) counters;
+    (void) n_counters;
+    return;
+}
+
+void __gcov_merge_ior(gcov_type* counters, gcov_unsigned_t n_counters) {
     (void) counters;
     (void) n_counters;
     return;
