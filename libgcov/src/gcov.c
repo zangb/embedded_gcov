@@ -74,9 +74,11 @@
  */
 
 #include <fcntl.h>    // \TODO: linux only header file to be removed for embedded
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>    //\TODO: linux only header file to be removed for embedded
 
 #include "gcov/gcov.h"
@@ -146,15 +148,29 @@ static unsigned char* gcov_output_buffer = (unsigned char*) (NULL);
 //! The index at which the data will be written
 static gcov_unsigned_t gcov_output_index = 0;
 
+static gcov_unsigned_t gcov_output_buffer_sz = 0U;
+
 //! One Entry for each file that was compiled with coverage info
 static gcov_info_tag gcov_info_file_buf[100];
 //! The number of files __gcov_init() will be called for
 static gcov_unsigned_t gcov_info_file_idx = 0;
 
-//! Spaces needs to be enough for the largest single file coverage data
+//! Pointer to memory where the gcda data of a single file will be temporarily stored
+static gcov_unsigned_t* gcov_gcda_buffer = NULL;
+//! Space needs to be enough for the largest single file coverage data
 //! The size used depends on the size and complexity of the source code that is
 //! compiled for coverage
-gcov_unsigned_t gcov_buffer[262144];
+static gcov_unsigned_t gcov_gcda_buffer_sz = 0U;
+
+void set_gcov_buffer(unsigned char* start_address, const gcov_unsigned_t size) {
+    gcov_output_buffer = start_address;
+    gcov_output_buffer_sz = size;
+}
+
+void set_gcov_gcda_buffer(gcov_unsigned_t* start_address, const gcov_unsigned_t size) {
+    gcov_gcda_buffer = start_address;
+    gcov_gcda_buffer_sz = size;
+}
 
 /*! \brief Saves the gcov data to a file
  *
@@ -290,19 +306,24 @@ void __gcov_exit(void) {
 
     gcov_info_tag* list_ptr = gcov_head;
     //!< \TODO: replace with embedded allocation to static memory
-    gcov_output_buffer = (unsigned char*) malloc(8192U * 32U + 1024);
 
     // Add checks that the output buffer pointer does not exceed the limits of the buffer
     while(list_ptr) {
         const uint32_t bytes_needed = gcov_convert_to_gcda(NULL, list_ptr->info);
 
         gcov_unsigned_t* buffer = NULL;
-        if(bytes_needed > (sizeof(gcov_buffer) * sizeof(gcov_unsigned_t))) {
+        if(bytes_needed > (gcov_gcda_buffer_sz * sizeof(gcov_unsigned_t))) {
             buffer = (gcov_unsigned_t*) NULL;
         } else {
             // buffer = gcov_buffer; // TODO: use something like this for embedded
-            buffer = malloc(bytes_needed);    // TODO: Replace with embedded allocation
+            // clear buffer before use
+            memset(gcov_gcda_buffer, 0U, gcov_gcda_buffer_sz * sizeof(gcov_gcda_buffer_sz));
+            buffer = gcov_gcda_buffer;    // TODO: Replace with embedded allocation
         }
+        // + 6 because of the end string "GCOV End\n" we need to add
+        if(bytes_needed
+           > ((gcov_output_buffer_sz - gcov_output_index) * sizeof(gcov_unsigned_t) + 9U))
+            return;
 
         if(!buffer)    //! not enough memory reserved
             return;
@@ -326,7 +347,7 @@ void __gcov_exit(void) {
             gcov_output_buffer[gcov_output_index++] =
                 (unsigned char) (((unsigned char*) buffer)[i]);
         }
-        free(buffer);    //!< TODO: Replace with embedded allocation maybe
+        // free(buffer);    //!< TODO: Replace with embedded allocation maybe
         list_ptr = list_ptr->next;
     }
 
@@ -341,6 +362,7 @@ void __gcov_exit(void) {
     gcov_output_buffer[gcov_output_index++] = '\0';
 
     save_file("../output/gcov_output.bin", gcov_output_buffer, gcov_output_index);
+    free(gcov_gcda_buffer);
     free(gcov_output_buffer);
     return;
 }

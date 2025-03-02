@@ -98,6 +98,28 @@ typedef long long gcov_type;
 #define GCOV_TAG_FUNCTION_LENGTH     (3 * GCOV_WORD_SIZE)
 #define GCOV_TAG_COUNTER_LENGTH(NUM) ((NUM) * 2 * GCOV_WORD_SIZE)
 
+/*! \brief Sets the buffer address for the output of gcov data
+ *
+ *  \param[in]  start_address   The start address of the buffer region
+ *  \param[in]  size            The size of the buffer in byte
+ *
+ *  Sets the buffer to use for the gcov data dump. This region will contain the gcov data
+ *  of all files which were instrumented and can be read out via JTAG for example.
+ *  This is needed to avoid any malloc allocations in this implementation.
+ */
+extern void set_gcov_buffer(unsigned char* start_address, gcov_unsigned_t size);
+
+/*! \brief Sets the buffer address for the temporary area used for a single gcda dump
+ *
+ *  \param[in]  start_address   The start address of the buffer region
+ *  \param[in]  size            The size of the buffer in multiples of gcov_unsigned_t
+ *
+ *  Sets the buffer to use for a single gcda file dump. This will contain the data of
+ *  one instrumented object file and will be overwritten for each file. This is necessary
+ *  to avoid malloc in this implementation itself.
+ */
+extern void set_gcov_gcda_buffer(gcov_unsigned_t* start_address, gcov_unsigned_t size);
+
 /*! \brief Converts the internal gcov data tree into the gcda output format
  *
  *  \param[in]  buffer  The buffer to store the data in, NULL if no data should be stored
